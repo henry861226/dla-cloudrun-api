@@ -4,15 +4,14 @@ from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response
 from google.cloud import bigquery
+import random
 
 # 自動引用環境變數檔案
-load_dotenv(verbose=True)
+load_dotenv(verbose=True, override=True)
 app = Flask(__name__)
 
 # 初始化 BigQuery 客戶端
 bq_client = bigquery.Client()
-
-current_time= datetime.now().strftime("%Y%m%d")
 
 @app.route('/', methods=['POST'])
 def get_marketing_copy():
@@ -23,31 +22,32 @@ def get_marketing_copy():
         if not cust_uuid:
             return jsonify({"error": "cust_uuid is required"}), 400
         # 查詢
-        query = f"""
-            SELECT
-            c.cust_uuid,
-            g.marketing_copy
+        multi_query = f"""
+            SELECT 
+                marketing_copy,
+                period
             FROM
-            `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.CUST_GRP_MAP_{current_time}` c
+                `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.CUST_GRP_MAP_{datetime.now().strftime('%Y%m%d')}` c
             JOIN
-            `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.GROUP_META` g
-            ON
-            c.group_uuid = g.group_uuid
+                `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.ACTIVE_COPY` g
+            ON 
+                c.group_uuid = g.group_uuid
             WHERE
-            c.cust_uuid = "{cust_uuid}";
+                c.cust_uuid = "{cust_uuid}"
         """
-
-        # 執行查詢
-        query_job = bq_client.query(query)
-        results = query_job.result()
-
-        # 將結果轉為 JSON
+        test_query = bq_client.query(multi_query)
+        results = list(test_query)
+        # 如果结果为空，返回默认信息或处理
+        if not results:
+            return f"No marketing_copy found for cust_uuid={cust_uuid}."
+        # 隨機選一條文案，並將結果轉為 JSON
         response = []
-        for row in results:
-            response.append({
-                "客戶 ID": row.cust_uuid,
-                "行銷文案": row.marketing_copy
-            })
+        random_row = random.choice(results)
+        response.append({
+            "客戶 ID": cust_uuid,
+            "行銷文案": random_row["marketing_copy"],
+            "檔期": random_row["period"]
+        })
         response_json = json.dumps(response, ensure_ascii=False)
         return Response(response_json, content_type="application/json; charset=utf-8")
 

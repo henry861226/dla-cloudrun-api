@@ -1,7 +1,10 @@
-Flask==3.1.0
 google-cloud-bigquery==3.27.0
 google-cloud-logging==3.11.3
 google-cloud-aiplatform==1.74.0
 python-dotenv==1.0.1
 Jinja2==3.1.4
 urllib3==1.26.16
+uvicorn==0.34.0
+fastapi==0.115.8
+pydantic==2.10.3
+pydantic_core==2.27.1

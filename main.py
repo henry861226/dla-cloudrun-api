@@ -1,10 +1,13 @@
 import os
-import json
 import random
 import logging
+import uvicorn
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, Response
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from google.cloud import bigquery
+from google.api_core.client_options import ClientOptions
+from google.auth.credentials import AnonymousCredentials
 
 # 自動引用環境變數檔案
 load_dotenv(verbose=True, override=True)
@@ -12,19 +15,46 @@ load_dotenv(verbose=True, override=True)
 # 設置日誌格式
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-app = Flask(__name__)
+app = FastAPI()
 
+# # 開發用：bq emulator
+# client_options = ClientOptions(api_endpoint="http://0.0.0.0:9050")
+# bq_client = bigquery.Client(
+#   "dla-poc-447003",
+#   client_options=client_options,
+#   credentials=AnonymousCredentials(),
+# )
+# # @app.route('/test', methods=['POST'])
+# @app.post('/test')
+# async def test():
+#     try:
+#         query = f"""
+#             SELECT * FROM `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.test_tb`
+#         """
+#         query_job = bq_client.query(query)
+#         # for row in query_job:
+#         #     print(f"{row['structarr']}")
+#         # return "test", 200
+#         results = [dict(row) for row in query_job]  # 轉換為字典列表
+#         return results
+#     except Exception as e:
+#         # return jsonify({"error": str(e)}), 500
+#         raise HTTPException(status_code=500, detail=str(e))
 # 初始化 BigQuery 客戶端
 bq_client = bigquery.Client()
 
-@app.route('/', methods=['POST'])
-def get_marketing_copy():
+# 定義 Pydantic 模型
+class MarketingRequest(BaseModel):
+    cust_uuid: str
+
+# @app.route('/', methods=['POST'])
+@app.post('/')
+async def get_marketing_copy(data: MarketingRequest):
     try:
         # 解析 POST 請求中的 cust_uuid
-        data = request.get_json()
-        cust_uuid = data.get("cust_uuid")
+        cust_uuid = data.cust_uuid
         if not cust_uuid:
-            return jsonify({"error": "cust_uuid is required"}), 400
+            raise HTTPException(status_code=400, detail="cust_uuid is required")
         
         # 取狀態已完成的最新日期
         enable_date = check_sts_table()
@@ -43,24 +73,23 @@ def get_marketing_copy():
             WHERE
                 c.cust_uuid = "{cust_uuid}"
         """
-        test_query = bq_client.query(multi_query)
-        results = list(test_query)
+        query_results = bq_client.query(multi_query)
+        results = list(query_results)
         # 如果结果為空，返回默認信息或處理
         if not results:
             return f"No marketing_copy found for cust_uuid={cust_uuid}."
-        # 隨機選一條文案，並將結果轉為 JSON
-        response = []
+        # 隨機選一條文案
         random_row = random.choice(results)
-        response.append({
+        response = {
             "客戶 ID": cust_uuid,
             "行銷文案": random_row["marketing_copy"],
             "檔期": random_row["period"]
-        })
-        response_json = json.dumps(response, ensure_ascii=False)
-        return Response(response_json, content_type="application/json; charset=utf-8")
+        }
+        return response
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 # 取最新狀態已完成的日期
 def check_sts_table():
@@ -75,6 +104,6 @@ def check_sts_table():
     logging.info(f"Latest Enable Table: CUST_GRP_MAP_{exec_date}")
     return exec_date
 
+# FastAPI Start
 if __name__ == "__main__":
-    # 確保你有正確設置 GOOGLE_APPLICATION_CREDENTIALS 環境變數
-    app.run(host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080)

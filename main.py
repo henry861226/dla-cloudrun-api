@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google.cloud import bigquery
-from google.api_core.client_options import ClientOptions
-from google.auth.credentials import AnonymousCredentials
 
 # 自動引用環境變數檔案
 load_dotenv(verbose=True, override=True)
@@ -17,51 +15,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 app = FastAPI()
 
-# # 開發用：bq emulator
-# client_options = ClientOptions(api_endpoint="http://0.0.0.0:9050")
-# bq_client = bigquery.Client(
-#   "dla-poc-447003",
-#   client_options=client_options,
-#   credentials=AnonymousCredentials(),
-# )
-# # @app.route('/test', methods=['POST'])
-# @app.post('/test')
-# async def test():
-#     try:
-#         query = f"""
-#             SELECT * FROM `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.test_tb`
-#         """
-#         query_job = bq_client.query(query)
-#         # for row in query_job:
-#         #     print(f"{row['structarr']}")
-#         # return "test", 200
-#         results = [dict(row) for row in query_job]  # 轉換為字典列表
-#         return results
-#     except Exception as e:
-#         # return jsonify({"error": str(e)}), 500
-#         raise HTTPException(status_code=500, detail=str(e))
 # 初始化 BigQuery 客戶端
 bq_client = bigquery.Client()
 
 # 定義 Pydantic 模型
 class MarketingRequest(BaseModel):
     cust_uuid: str
+    period: str
 
 # @app.route('/', methods=['POST'])
 @app.post('/')
 async def get_marketing_copy(data: MarketingRequest):
     try:
-        # 解析 POST 請求中的 cust_uuid
+        # 解析 POST 請求中的 cust_uuid & period
         cust_uuid = data.cust_uuid
+        period = data.period
         if not cust_uuid:
+            logging.WARN("cust_uuid is required")
             raise HTTPException(status_code=400, detail="cust_uuid is required")
-        
+        if not period:
+            logging.WARN("period is required")
+            raise HTTPException(status_code=400, detail="period is required") 
         # 取狀態已完成的最新日期
         enable_date = check_sts_table()
 
         # 查詢
         multi_query = f"""
             SELECT 
+                uuid,
                 marketing_copy,
                 period
             FROM
@@ -69,7 +50,7 @@ async def get_marketing_copy(data: MarketingRequest):
             JOIN
                 `{os.getenv('PROJECT_ID')}.{os.getenv('DATASET')}.ACTIVE_COPY` g
             ON 
-                c.group_uuid = g.group_uuid
+                c.group_uuid = g.group_uuid AND g.period="{period}"
             WHERE
                 c.cust_uuid = "{cust_uuid}"
         """
@@ -77,18 +58,19 @@ async def get_marketing_copy(data: MarketingRequest):
         results = list(query_results)
         # 如果结果為空，返回默認信息或處理
         if not results:
+            logging.WARN(f"No marketing_copy found for cust_uuid={cust_uuid}.")
             return f"No marketing_copy found for cust_uuid={cust_uuid}."
         # 隨機選一條文案
         random_row = random.choice(results)
         response = {
             "客戶 ID": cust_uuid,
+            "行銷文案UUID": random_row["uuid"],
             "行銷文案": random_row["marketing_copy"],
             "檔期": random_row["period"]
         }
         return response
 
     except Exception as e:
-        # return jsonify({"error": str(e)}), 500
         raise HTTPException(status_code=500, detail=str(e))
 
 # 取最新狀態已完成的日期

@@ -1,6 +1,7 @@
 google-cloud-bigquery==3.27.0
 google-cloud-logging==3.11.3
 google-cloud-aiplatform==1.74.0
+google-cloud-firestore==2.19.0
 python-dotenv==1.0.1
 Jinja2==3.1.4
 urllib3==1.26.16

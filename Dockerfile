@@ -2,18 +2,17 @@
 FROM python:3.9-slim
 
 # env variable
-ENV LANG=C.UTF-8
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PYTHONPATH=/app
+# ENV LANG=C.UTF-8
+# ENV PYTHONDONTWRITEBYTECODE=1
+# ENV PYTHONUNBUFFERED=1
+# ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+# ENV PYTHONPATH=/app
 
 WORKDIR /app
+# 複製程式碼和依賴
+COPY . /app
+# 安裝依賴
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY requirements.txt requirements.txt
-
-RUN pip install --no-cache-dir --default-timeout=0 -r requirements.txt
-
-COPY . .
-
-ENTRYPOINT ["sh", "/app/start.sh"]
+# 指定執行命令
+CMD ["python", "main.py"]

@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from google.cloud import bigquery
+import json
+from google.cloud import firestore
+from datetime import datetime
 
 # 自動引用環境變數檔案
 load_dotenv(verbose=True, override=True)
@@ -18,12 +21,69 @@ app = FastAPI()
 # 初始化 BigQuery 客戶端
 bq_client = bigquery.Client()
 
+# 初始化 Firestore 客戶端
+ft = firestore.Client(database="trccubcardpoc")
+
 # 定義 Pydantic 模型
 class MarketingRequest(BaseModel):
     cust_uuid: str
     period: str
 
-# @app.route('/', methods=['POST'])
+@app.get('/test_gke')
+def test_gke():
+    logging.info("API Success.")
+    return "OKOK", 200
+    
+
+
+# 格式化資料
+def format_member_feedback_doc(doc):
+    formatted_doc = {
+        "TXN_DATE": datetime.strptime(doc["TXN_DATE"]["$date"], "%Y-%m-%dT%H:%M:%S.%fZ") if "$date" in doc["TXN_DATE"] else None,
+        "BEF_AVAILABLE_BONUS_POINT": doc["BEF_AVAILABLE_BONUS_POINT"],
+        "CHANGE_BONUS_POINT": doc["CHANGE_BONUS_POINT"],
+        "AFT_AVAILABLE_BONUS_POINT": doc["AFT_AVAILABLE_BONUS_POINT"],
+        "TXN_TYPE": doc["TXN_TYPE"],
+        "MEMBER": doc["MEMBER"]
+    }
+    return formatted_doc
+# 格式化資料
+def format_feedback_doc(doc):
+    formatted_doc = {
+        "TXN_DATE": datetime.strptime(doc["TXN_DATE"]["$date"], "%Y-%m-%dT%H:%M:%S.%fZ") if "$date" in doc["TXN_DATE"] else None,
+        "FEEDBACK_DATE": datetime.strptime(doc["FEEDBACK_DATE"]["$date"], "%Y-%m-%dT%H:%M:%S.%fZ") if "$date" in doc["FEEDBACK_DATE"] else None,
+        "GROUP_DESC": doc["GROUP_DESC"],
+        "FEEDBACK_DESC": doc["FEEDBACK_DESC"],
+        "FEEDBACK_POINT": doc["FEEDBACK_POINT"],
+        "NTD_TXN_AMT": doc["NTD_TXN_AMT"],
+        "MERCHANT_NAME": doc["MERCHANT_NAME"].strip(),
+        "MEMBER": doc["MEMBER"]
+    }
+    return formatted_doc
+
+@app.post('/batch-ft')
+def import_firestore_json():
+    # 指定要存入 Firestore 的集合名稱
+    collection_name = "cubcard_feedback"
+
+    # 讀取 JSON 檔案
+    json_file_path = "../../外部卡友/cathaybk-chatbot-data-snapshot-20250307/mongo_cathay-poc-data_FEEDBACK.json"  # 替換成你的 JSON 檔案路徑
+    with open(json_file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # 批次寫入 Firestore
+    batch = ft.batch()
+    collection_ref = ft.collection(collection_name)
+
+    for doc in data:
+        doc_id = doc["_id"]["$oid"]  # 使用 MongoDB 的 ObjectId 作為 Firestore 文件 ID
+        formatted_doc = format_feedback_doc(doc)
+        batch.set(collection_ref.document(doc_id), formatted_doc)
+
+    # 提交批次操作
+    batch.commit()
+
+    print(f"成功將 {len(data)} 筆資料匯入 Firestore!")
+
 @app.post('/')
 async def get_marketing_copy(data: MarketingRequest):
     try:
